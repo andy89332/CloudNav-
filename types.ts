@@ -1,3 +1,4 @@
+
 export interface LinkItem {
   id: string;
   title: string;
@@ -16,10 +17,18 @@ export interface Category {
   password?: string; // Optional password for category protection
 }
 
+export interface SiteSettings {
+  title: string;
+  navTitle: string;
+  favicon: string;
+  cardStyle: 'detailed' | 'simple';
+}
+
 export interface AppState {
   links: LinkItem[];
   categories: Category[];
   darkMode: boolean;
+  settings?: SiteSettings;
 }
 
 export interface WebDavConfig {
@@ -53,4 +62,20 @@ export const INITIAL_LINKS: LinkItem[] = [
   { id: '3', title: 'Tailwind CSS', url: 'https://tailwindcss.com', categoryId: 'design', createdAt: Date.now(), description: '原子化CSS框架' },
   { id: '4', title: 'ChatGPT', url: 'https://chat.openai.com', categoryId: 'ai', createdAt: Date.now(), description: 'OpenAI聊天机器人', pinned: true },
   { id: '5', title: 'Gemini', url: 'https://gemini.google.com', categoryId: 'ai', createdAt: Date.now(), description: 'Google DeepMind AI' },
+];
+
+export interface SearchEngine {
+  id: string;
+  name: string;
+  url: string; // e.g., https://www.google.com/search?q=
+  icon: string; // url or key
+}
+
+export const DEFAULT_SEARCH_ENGINES: SearchEngine[] = [
+    { id: 'local', name: '站内', url: '', icon: 'Search' },
+    { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=', icon: 'https://www.google.com/favicon.ico' },
+    { id: 'bing', name: '必应', url: 'https://www.bing.com/search?q=', icon: 'https://www.bing.com/favicon.ico' },
+    { id: 'baidu', name: '百度', url: 'https://www.baidu.com/s?wd=', icon: 'https://www.baidu.com/favicon.ico' },
+    { id: 'github', name: 'GitHub', url: 'https://github.com/search?q=', icon: 'https://github.com/favicon.ico' },
+    { id: 'bilibili', name: 'B站', url: 'https://search.bilibili.com/all?keyword=', icon: 'https://www.bilibili.com/favicon.ico' },
 ];

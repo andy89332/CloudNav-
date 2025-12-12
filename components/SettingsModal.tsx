@@ -1,24 +1,26 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Save, Bot, Key, Globe, Sparkles, PauseCircle, Wrench, Box, Copy, Check, List, GripVertical, Filter } from 'lucide-react';
-import { AIConfig, LinkItem, Category } from '../types';
+import { X, Save, Bot, Key, Globe, Sparkles, PauseCircle, Wrench, Box, Copy, Check, List, GripVertical, Filter, LayoutTemplate } from 'lucide-react';
+import { AIConfig, LinkItem, Category, SiteSettings } from '../types';
 import { generateLinkDescription } from '../services/geminiService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: AIConfig;
-  onSave: (config: AIConfig) => void;
+  siteSettings: SiteSettings;
+  onSave: (config: AIConfig, siteSettings: SiteSettings) => void;
   links: LinkItem[];
   categories: Category[];
   onUpdateLinks: (links: LinkItem[]) => void;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
-    isOpen, onClose, config, onSave, links, categories, onUpdateLinks 
+    isOpen, onClose, config, siteSettings, onSave, links, categories, onUpdateLinks 
 }) => {
-  const [activeTab, setActiveTab] = useState<'ai' | 'tools' | 'links'>('ai');
+  const [activeTab, setActiveTab] = useState<'site' | 'ai' | 'tools' | 'links'>('site');
   const [localConfig, setLocalConfig] = useState<AIConfig>(config);
+  const [localSiteSettings, setLocalSiteSettings] = useState<SiteSettings>(siteSettings);
   
   // Bulk Generation State
   const [isProcessing, setIsProcessing] = useState(false);
@@ -44,6 +46,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setLocalConfig(config);
+      setLocalSiteSettings(siteSettings);
       setIsProcessing(false);
       setProgress({ current: 0, total: 0 });
       shouldStopRef.current = false;
@@ -53,14 +56,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       setDraggedId(null);
       setFilterCategory('all');
     }
-  }, [isOpen, config]);
+  }, [isOpen, config, siteSettings]);
 
   const handleChange = (key: keyof AIConfig, value: string) => {
     setLocalConfig(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleSiteChange = (key: keyof SiteSettings, value: string) => {
+    setLocalSiteSettings(prev => ({ ...prev, [key]: value }));
+  };
+
   const handleSave = () => {
-    onSave(localConfig);
+    onSave(localConfig, localSiteSettings);
     onClose();
   };
 
@@ -330,30 +337,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!isOpen) return null;
 
+  const tabs = [
+    { id: 'site', label: '网站设置', icon: LayoutTemplate },
+    { id: 'ai', label: 'AI 设置', icon: Bot },
+    { id: 'links', label: '链接管理', icon: List },
+    { id: 'tools', label: '扩展工具', icon: Wrench },
+  ];
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]">
         
         <div className="flex justify-between items-center p-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
-          <div className="flex gap-4">
-              <button 
-                onClick={() => setActiveTab('ai')}
-                className={`text-sm font-semibold flex items-center gap-2 pb-1 transition-colors ${activeTab === 'ai' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 dark:text-slate-400'}`}
-              >
-                <Bot size={18} /> AI 设置
-              </button>
-              <button 
-                onClick={() => setActiveTab('links')}
-                className={`text-sm font-semibold flex items-center gap-2 pb-1 transition-colors ${activeTab === 'links' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 dark:text-slate-400'}`}
-              >
-                <List size={18} /> 链接管理
-              </button>
-              <button 
-                onClick={() => setActiveTab('tools')}
-                className={`text-sm font-semibold flex items-center gap-2 pb-1 transition-colors ${activeTab === 'tools' ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 dark:text-slate-400'}`}
-              >
-                <Wrench size={18} /> 扩展工具
-              </button>
+          <div className="flex gap-4 overflow-x-auto no-scrollbar">
+              {tabs.map(tab => (
+                 <button 
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`text-sm font-semibold flex items-center gap-2 pb-1 transition-colors whitespace-nowrap ${activeTab === tab.id ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 dark:text-slate-400'}`}
+                  >
+                    <tab.icon size={18} /> {tab.label}
+                  </button>
+              ))}
           </div>
           <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition-colors">
             <X className="w-5 h-5 dark:text-slate-400" />
@@ -362,6 +367,64 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         <div className="p-6 space-y-6 overflow-y-auto min-h-[300px] flex-1">
             
+            {activeTab === 'site' && (
+                <div className="space-y-4">
+                     <div>
+                        <h4 className="font-medium text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-2">
+                           <LayoutTemplate size={16} className="text-blue-500"/> 浏览器标签标题设置
+                        </h4>
+                        <p className="text-xs text-slate-500 mb-3">配置浏览器标签页显示的网站标题，让您的书签管理器更具个性化。</p>
+                        
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">网站标题 (Title)</label>
+                                <input
+                                    type="text"
+                                    value={localSiteSettings.title}
+                                    onChange={(e) => handleSiteChange('title', e.target.value)}
+                                    placeholder="CloudNav - 我的导航"
+                                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">显示在浏览器标签页上的标题</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">网页导航名称 (Navbar Name)</label>
+                                <input
+                                    type="text"
+                                    value={localSiteSettings.navTitle}
+                                    onChange={(e) => handleSiteChange('navTitle', e.target.value)}
+                                    placeholder="CloudNav"
+                                    className="w-full p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                />
+                                <p className="text-[10px] text-slate-400 mt-1">显示在网页左上角的导航名称</p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">网站图标 (Favicon URL)</label>
+                                <div className="flex gap-2">
+                                    <div className="shrink-0 w-10 h-10 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+                                        {localSiteSettings.favicon ? (
+                                            <img src={localSiteSettings.favicon} className="w-full h-full object-contain" onError={(e) => e.currentTarget.style.display='none'} />
+                                        ) : (
+                                            <Globe size={18} className="text-slate-400"/>
+                                        )}
+                                    </div>
+                                    <input
+                                        type="text"
+                                        value={localSiteSettings.favicon}
+                                        onChange={(e) => handleSiteChange('favicon', e.target.value)}
+                                        placeholder="/favicon.ico"
+                                        className="flex-1 p-2.5 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                    />
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">网站图标的 URL 地址</p>
+                            </div>
+                        </div>
+                     </div>
+                </div>
+            )}
+
             {activeTab === 'ai' && (
                 <>
                     {/* Provider Selection */}
@@ -625,7 +688,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         </div>
 
-        {activeTab === 'ai' && (
+        {activeTab === 'ai' || activeTab === 'site' ? (
             <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3 shrink-0">
                 <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">取消</button>
                 <button 
@@ -635,7 +698,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <Save size={16} /> 保存设置
                 </button>
             </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
