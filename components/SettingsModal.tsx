@@ -232,11 +232,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const getManifestJson = () => {
     const json: any = {
         manifest_version: 3,
-        // 更换名称以强制 Chrome 刷新元数据
-        name: (localSiteSettings.navTitle || "CloudNav") + " SidePanel",
-        version: "4.0",
+        name: (localSiteSettings.navTitle || "CloudNav") + " Smart",
+        version: "5.0", // Bump version
         minimum_chrome_version: "116",
-        description: "CloudNav 侧边栏导航 - 极速版",
+        description: "CloudNav 侧边栏导航 - 智能开关版",
         permissions: ["activeTab", "scripting", "sidePanel", "storage", "favicon"],
         background: {
             service_worker: "background.js"
@@ -259,10 +258,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             },
             "description": "打开保存弹窗 (Open Save Popup)"
           },
-          // 关键修复：移除 suggested_key，防止因快捷键冲突导致整个命令被 Chrome 忽略
-          // 用户必须在 chrome://extensions/shortcuts 手动绑定快捷键
-          "_execute_side_panel": {
-            "description": "打开/关闭侧边栏 (Toggle Side Panel)"
+          // 切换回自定义命令，彻底绕过 _execute_side_panel 可能的不显示问题
+          "toggle_sidebar": {
+            "suggested_key": {
+              "default": "Ctrl+Shift+E",
+              "mac": "Command+Shift+E"
+            },
+            "description": "打开/关闭侧边栏 (Toggle Sidebar)"
           }
         }
     };
@@ -279,20 +281,86 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     return JSON.stringify(json, null, 2);
   };
 
-  const extBackgroundJs = `// background.js - CloudNav Assistant v4.0
+  const extBackgroundJs = `// background.js - CloudNav Assistant v5.0 (Smart Toggle Mode)
 
+// 跟踪所有当前已打开侧边栏的窗口 ID
+const openWindows = new Set();
+
+// 1. 监听来自侧边栏的连接，用于精准追踪状态
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'cloudnav_sidebar') {
+    // 获取连接所在的窗口 ID (侧边栏也是一个页面，属于某个窗口)
+    // 但 port.sender.tab 可能为空，因为侧边栏不属于 tab
+    // 我们尝试获取 sender 的 windowId
+    
+    // 侧边栏打开时，记录窗口 ID
+    if (port.sender && port.sender.tab && port.sender.tab.windowId) {
+       openWindows.add(port.sender.tab.windowId);
+       
+       port.onDisconnect.addListener(() => {
+          openWindows.delete(port.sender.tab.windowId);
+          console.log('Sidebar closed for window:', port.sender.tab.windowId);
+       });
+       console.log('Sidebar opened for window:', port.sender.tab.windowId);
+    } 
+    // 对于没有 tab 信息的 (标准的 side panel)，我们可能需要另一种方式
+    // 幸运的是，sidePanel 的 content script 或者页面本身可以通过 chrome.windows.getCurrent 获取
+  }
+});
+
+// 2. 监听自定义命令，实现“智能开关”
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command === 'toggle_sidebar') {
+    const windowId = tab.windowId;
+    
+    // 检查我们记录的状态
+    const isOpen = openWindows.has(windowId);
+
+    if (isOpen) {
+        // 【关闭逻辑】: 利用 API 瞬间禁用再启用，达到关闭效果
+        console.log('Closing sidebar for window', windowId);
+        
+        // 1. 仅针对当前窗口禁用侧边栏 (这会立即关闭它)
+        await chrome.sidePanel.setOptions({
+            windowId: windowId,
+            enabled: false
+        });
+        
+        // 2. 将其从记录中移除 (虽然 onDisconnect 也会做，但手动做更保险)
+        openWindows.delete(windowId);
+
+        // 3. 稍后恢复启用，以便下次可以通过 API 打开
+        // 注意：enabled: true 不会自动重新打开侧边栏，只是允许被打开
+        setTimeout(() => {
+            chrome.sidePanel.setOptions({
+                windowId: windowId,
+                enabled: true,
+                path: 'sidebar.html'
+            });
+        }, 100);
+
+    } else {
+        // 【打开逻辑】: 直接调用 Open API
+        console.log('Opening sidebar for window', windowId);
+        
+        // 确保它是启用的
+        await chrome.sidePanel.setOptions({
+            windowId: windowId,
+            enabled: true,
+            path: 'sidebar.html'
+        });
+
+        // 打开它
+        await chrome.sidePanel.open({ windowId: windowId });
+        // 状态记录将由 onConnect 处理
+    }
+  }
+});
+
+// 初始化：确保全局启用
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('CloudNav SidePanel Installed');
-  
-  // 1. 设置点击图标的行为：打开 Popup (保存页面)
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false })
-    .catch((error) => console.error("setPanelBehavior failed:", error));
-
-  // 2. 确保侧边栏已启用
-  chrome.sidePanel.setOptions({
-      enabled: true,
-      path: 'sidebar.html'
-  }).catch((error) => console.error("setOptions failed:", error));
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
+  chrome.sidePanel.setOptions({ enabled: true, path: 'sidebar.html' });
 });
 `;
 
@@ -561,6 +629,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 };
 const CACHE_KEY = 'cloudnav_data';
 
+// 建立连接以告知 background script 侧边栏已打开
+// 这是实现“智能开关”的关键
+try {
+    chrome.runtime.connect({ name: 'cloudnav_sidebar' });
+} catch(e) {
+    console.log('Connect failed', e);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const container = document.getElementById('content');
     const searchInput = document.getElementById('search');
@@ -568,7 +644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     let allLinks = [];
     let allCategories = [];
-    let expandedCats = new Set(); // Stores IDs of currently expanded categories
+    let expandedCats = new Set(); 
 
     const getArrowIcon = () => {
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="cat-arrow"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -624,7 +700,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (catLinks.length === 0) return;
             hasContent = true;
 
-            // Only expand if specifically clicked (in expandedCats) OR if user is searching
             const isOpen = expandedCats.has(cat.id) || isSearching;
             const activeClass = isOpen ? 'active' : '';
 
@@ -1131,7 +1206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                                     安装指南 ({browserType === 'chrome' ? 'Chrome/Edge' : 'Firefox'}):
                                 </h5>
                                 <ol className="list-decimal list-inside text-sm text-slate-600 dark:text-slate-400 space-y-2 leading-relaxed">
-                                    <li>在电脑上新建文件夹 <code className="bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-mono text-xs">CloudNav-SidePanel</code>。</li>
+                                    <li>在电脑上新建文件夹 <code className="bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-mono text-xs">CloudNav-Smart</code>。</li>
                                     <li><strong>[重要]</strong> 将下方图标保存为 <code className="bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-mono text-xs">icon.png</code>。</li>
                                     <li>在文件夹中创建以下 6 个文件。<span className="text-red-500 dark:text-red-400 font-bold"> 请务必点击下方按钮一键下载并覆盖旧文件。</span></li>
                                     <li>
@@ -1143,10 +1218,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                                         )}。
                                     </li>
                                     <li className="text-blue-600 font-bold">操作关键点：</li>
-                                    <li>1. 点击旧版插件的 "<strong>移除</strong>" 按钮。</li>
-                                    <li>2. 重新点击 "<strong>加载已解压的扩展程序</strong>" 选择新文件夹。</li>
-                                    <li>3. 打开扩展快捷键设置页，找到 "<strong>CloudNav SidePanel</strong>"。</li>
-                                    <li>4. 在 "打开/关闭侧边栏" 处手动绑定快捷键 (例如 Ctrl+Shift+E)。</li>
+                                    <li>1. 移除旧插件，重启浏览器。</li>
+                                    <li>2. 加载新版插件。</li>
+                                    <li>3. 前往 <code className="select-all bg-white dark:bg-slate-900 px-1 rounded">chrome://extensions/shortcuts</code>。</li>
+                                    <li>4. 您将看到 "打开/关闭侧边栏" 选项，请手动绑定快捷键 (例如 Ctrl+Shift+E)。</li>
                                 </ol>
                                 
                                 <div className="mt-4 mb-4">
@@ -1156,13 +1231,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                                         className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-lg shadow-blue-500/20"
                                     >
                                         <Package size={20} />
-                                        {isZipping ? '打包中...' : '📦 一键下载所有文件 (v4.0)'}
+                                        {isZipping ? '打包中...' : '📦 一键下载所有文件 (v5.0 Smart)'}
                                     </button>
                                 </div>
                                 
                                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 rounded border border-amber-200 dark:border-amber-900/50 text-sm space-y-2">
-                                    <div className="font-bold flex items-center gap-2"><Keyboard size={16}/> 强制清除缓存:</div>
-                                    <p>此版本移除了默认快捷键绑定，以解决按键冲突问题。请安装后<strong>务必手动绑定</strong>快捷键。</p>
+                                    <div className="font-bold flex items-center gap-2"><Keyboard size={16}/> 终极解决方案:</div>
+                                    <p>此版本使用了"智能开关"技术：侧边栏会自动向后台报告连接状态。如果您的浏览器屏蔽了原生命令，此自定义命令将通过 API 强制开关侧边栏。</p>
                                 </div>
                             </div>
 
